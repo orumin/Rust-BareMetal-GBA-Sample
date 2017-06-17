@@ -1,3 +1,4 @@
 # build directory
 build/
 target/
+rom_header
