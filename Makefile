@@ -3,33 +3,49 @@
 # kotetuco, 2017
 #
 
-TARGET_ARCH := arm-none-eabi
-TARGET_ARCH_RUST := $(TARGET_ARCH)
+.PHONY: clean default mb rom
+.SUFFIXES: .o .S
+
+prefix := arm-none-eabi
+AS := $(prefix)-as
+LD := $(prefix)-ld
+OBJCOPY := $(prefix)-objcopy
+XARGO := $(shell which xargo)
+
+TARGET_ARCH_RUST := $(prefix)
+
 BUILD_NAME := rom
 BUILD_DIR := build
 BUILD_MODE := debug
 
+TARGET_ROM_ELF := $(BUILD_DIR)/$(BUILD_NAME).elf
+TARGET_MB_ELF := $(BUILD_DIR)/$(BUILD_NAME)_mb.elf
+TARGET_ROM := $(BUILD_DIR)/$(BUILD_NAME).gba
+TARGET_MB := $(BUILD_DIR)/$(BUILD_NAME).mb
+
+CRT_OBJS := $(BUILD_DIR)/crt.o
+SRCS := $(wildcard src/*.rs)
+TARGET_OBJ := target/$(TARGET_ARCH_RUST)/$(BUILD_MODE)/librust_basemetal_gba.a
+
+LDFLAGS := --gc-sections --library-path=target/$(TARGET_ARCH_RUST)/$(BUILD_MODE) -lrust_basemetal_gba 
+
 default:
 	mkdir -p $(BUILD_DIR)
-	make $(BUILD_DIR)/$(BUILD_NAME).mb
+	make mb
 
-$(BUILD_DIR)/$(BUILD_NAME).mb: $(BUILD_DIR)/$(BUILD_NAME).elf
-	$(TARGET_ARCH)-objcopy -O binary $(BUILD_DIR)/$(BUILD_NAME).elf \
-	$(BUILD_DIR)/$(BUILD_NAME).mb
+mb: $(BUILD_DIR)/$(BUILD_NAME).mb
 
-$(BUILD_DIR)/$(BUILD_NAME).elf: $(BUILD_DIR)/crt.o rom.ld \
-target/$(TARGET_ARCH_RUST)/$(BUILD_MODE)/librust_basemetal_gba.a
-	$(TARGET_ARCH)-ld --gc-sections -t -T rom.ld -o $(BUILD_DIR)/$(BUILD_NAME).elf \
-	$(BUILD_DIR)/crt.o --library-path=target/$(TARGET_ARCH_RUST)/$(BUILD_MODE) \
-	-lrust_basemetal_gba -Map $(BUILD_DIR)/$(BUILD_NAME).map
+$(TARGET_MB): $(TARGET_MB_ELF)
+	$(OBJCOPY) -O binary $< $@
 
-target/$(TARGET_ARCH_RUST)/$(BUILD_MODE)/librust_basemetal_gba.a: \
-$(TARGET_ARCH_RUST).json Cargo.toml src/*.rs
-	RUST_TARGET_PATH=$(PWD) rustup run nightly `which xargo` build -v \
-	--target=$(TARGET_ARCH_RUST)
+$(TARGET_MB_ELF): $(BUILD_DIR)/crt.o mb.ld $(TARGET_OBJ)
+	$(LD) -t -T mb.ld -o $@ $(BUILD_DIR)/crt.o $(LDFLAGS) -Map $(BUILD_DIR)/$(BUILD_NAME)_mb.map
 
-$(BUILD_DIR)/crt.o: crt.S
-	$(TARGET_ARCH)-as crt.S -o $(BUILD_DIR)/crt.o
+$(TARGET_OBJ): $(TARGET_ARCH_RUST).json Cargo.toml $(SRCS)
+	RUST_TARGET_PATH=$(PWD) rustup run nightly $(XARGO) build -v --target=$(TARGET_ARCH_RUST)
+
+$(CRT_OBJS): $(BUILD_DIR)/%.o: %.S
+	$(AS) $< -o $@
 
 clean:
 	rm -rf $(BUILD_DIR)
